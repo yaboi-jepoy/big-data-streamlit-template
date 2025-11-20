@@ -1,0 +1,16 @@
+# generate cluster ID if you don't have one
+export KAFKA_CLUSTER_ID=$(./bin/kafka-storage.sh random-uuid)
+
+# format storage (only needed once or when resetting)
+./bin/kafka-storage.sh format -t "$KAFKA_CLUSTER_ID" -c config/controller.properties --standalone
+
+# start kafka server
+./bin/kafka-server-start.sh config/controller.properties
+
+# Create sensor-data topic
+./bin/kafka-topics.sh --create --topic sensor-data \
+  --bootstrap-server localhost:9092 \
+  --partitions 1 --replication-factor 1
+
+# Verify topic was created
+./bin/kafka-topics.sh --list --bootstrap-server localhost:9092

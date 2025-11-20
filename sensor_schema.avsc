@@ -1,0 +1,38 @@
+{
+  "type": "record",
+  "name": "SensorData",
+  "namespace": "com.bigdata.streaming",
+  "doc": "Schema for sensor streaming data",
+  "fields": [
+    {
+      "name": "timestamp",
+      "type": "string",
+      "doc": "ISO format timestamp"
+    },
+    {
+      "name": "value",
+      "type": "double",
+      "doc": "Sensor measurement value"
+    },
+    {
+      "name": "metric_type",
+      "type": "string",
+      "doc": "Type of metric (temperature, humidity, pressure)"
+    },
+    {
+      "name": "sensor_id",
+      "type": "string",
+      "doc": "Unique sensor identifier"
+    },
+    {
+      "name": "location",
+      "type": "string",
+      "doc": "Physical location of sensor"
+    },
+    {
+      "name": "unit",
+      "type": "string",
+      "doc": "Unit of measurement"
+    }
+  ]
+}
