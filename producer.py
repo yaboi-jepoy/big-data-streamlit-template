@@ -354,8 +354,8 @@ def parse_arguments():
     parser.add_argument(
         '--topic',
         type=str,
-        default='streaming-data',
-        help='Kafka topic to produce to (default: streaming-data)'
+        default='sensor-data',  # changed to the topic name
+        help='Kafka topic to produce to (default: sensor-data)'
     )
     
     parser.add_argument(
@@ -373,7 +373,11 @@ def parse_arguments():
     )
     
     # STUDENT TODO: Add more arguments for your specific use case
-    # parser.add_argument('--sensor-count', type=int, default=5, help='Number of simulated sensors')
+    parser.add_argument(
+        '--verbose',
+    action='store_true',
+    help='Enable verbose output with detailed logging'
+    )
     # parser.add_argument('--data-type', choices=['temperature', 'humidity', 'financial'], default='temperature')
     
     return parser.parse_args()
