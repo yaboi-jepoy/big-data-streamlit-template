@@ -213,22 +213,11 @@ class StreamingDataProducer:
 
     def serialize_data(self, data: Dict[str, Any]) -> bytes:
         """
-        Implement Avro data serialization
-        
-        Convert the data dictionary to Avro binary format for Kafka transmission.
-        Avro provides better performance and schema validation compared to JSON.
-        
-        Parameters:
-        - data: Dictionary containing the message data
-        
-        Returns:
-        - bytes: Avro-serialized data, or None if serialization fails
+        Convert data to Avro binary format
         """
-        
         # Check if Avro schema is loaded
         if not self.avro_schema:
             print("❌ ERROR: Avro schema not loaded, falling back to JSON")
-            # Fallback to JSON if Avro schema failed to load
             try:
                 return json.dumps(data).encode('utf-8')
             except Exception as e:
@@ -236,42 +225,62 @@ class StreamingDataProducer:
                 return None
         
         try:
-            # Step 1: Create a bytes buffer (like an in-memory file)
+            # ⭐ Avro serialization goes HERE
             bytes_writer = python_io.BytesIO()
-            
-            # Step 2: Create an Avro encoder that writes to the buffer
             encoder = avro.io.BinaryEncoder(bytes_writer)
-            
-            # Step 3: Create a DatumWriter that uses our schema
             writer = avro.io.DatumWriter(self.avro_schema)
-            
-            # Step 4: Write the data according to the schema
             writer.write(data, encoder)
-            
-            # Step 5: Get the serialized bytes from the buffer
             serialized_data = bytes_writer.getvalue()
-            
-            # Close the buffer
             bytes_writer.close()
             
             return serialized_data
             
         except avro.io.AvroTypeException as e:
-            # This happens when data doesn't match the schema
             print(f"❌ Avro schema validation error: {e}")
             print(f"   Data that failed: {data}")
             return None
             
         except TypeError as e:
-            # This happens if data contains non-serializable types
             print(f"❌ Serialization error - Invalid data type: {e}")
-            print(f"   Problem data: {data}")
             return None
             
         except Exception as e:
-            # Catch any other unexpected errors
             print(f"❌ Unexpected Avro serialization error: {e}")
             return None
+    
+    def send_message(self, data: Dict[str, Any]) -> bool:
+        """
+        Send serialized message to Kafka
+        """
+        # Check if producer is initialized
+        if not self.producer:
+            print("❌ ERROR: Kafka producer not initialized")
+            return False
+        
+        # ⭐ Call serialize_data() to get Avro bytes
+        serialized_data = self.serialize_data(data)
+        if not serialized_data:
+            print("❌ ERROR: Serialization failed")
+            return False
+        
+        try:
+            # ⭐ Send the serialized bytes to Kafka
+            future = self.producer.send(self.topic, value=serialized_data)
+            result = future.get(timeout=10)
+            
+            # Success message
+            print(f"✓ Message sent - Topic: {self.topic}, "
+                f"Partition: {result.partition}, Offset: {result.offset}, "
+                f"Sensor: {data['sensor_id']}, Type: {data['metric_type']}, "
+                f"Value: {data['value']}{data['unit']}")
+            return True
+            
+        except KafkaError as e:
+            print(f"❌ Kafka send error: {e}")
+            return False
+        except Exception as e:
+            print(f"❌ Unexpected error during send: {e}")
+            return False
 
 
     def produce_stream(self, messages_per_second: float = 0.1, duration: int = None):
