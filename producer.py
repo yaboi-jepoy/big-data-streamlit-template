@@ -373,10 +373,11 @@ def parse_arguments():
     )
     
     # STUDENT TODO: Add more arguments for your specific use case
+    # add verbose for more information
     parser.add_argument(
         '--verbose',
-    action='store_true',
-    help='Enable verbose output with detailed logging'
+        action='store_true',
+        help='Enable verbose output with detailed logging'
     )
     # parser.add_argument('--data-type', choices=['temperature', 'humidity', 'financial'], default='temperature')
     
