@@ -386,7 +386,7 @@ def parse_arguments():
 
 def main():
     """
-    STUDENT TODO: Customize the main execution flow as needed
+    DONER: Main execution flow with error handling
     
     Implementation Steps:
     1. Parse command-line arguments
@@ -395,13 +395,21 @@ def main():
     4. Handle graceful shutdown
     """
     
-    print("=" * 60)
-    print("STREAMING DATA PRODUCER TEMPLATE")
-    print("STUDENT TODO: Implement all sections marked with 'STUDENT TODO'")
-    print("=" * 60)
+    print("=" * 70)
+    print("KAFKA STREAMING DATA PRODUCER")
+    print("   Big Data Dashboard Project")
+    print("=" * 70)
     
     # Parse command-line arguments
     args = parse_arguments()
+    
+    # Show config if verbose mode enabled
+    if args.verbose:
+        print("\n📋 Configuration:")
+        print(f"   ├─ Bootstrap servers: {args.bootstrap_servers}")
+        print(f"   ├─ Topic: {args.topic}")
+        print(f"   ├─ Rate: {args.rate} msg/sec")
+        print(f"   └─ Duration: {args.duration or 'infinite'}\n")
     
     # Initialize producer
     producer = StreamingDataProducer(
@@ -409,18 +417,40 @@ def main():
         topic=args.topic
     )
     
+    # Check if producer initialized successfully
+    if not producer.producer:
+        print("\n Failed to initialize Kafka producer")
+        print("Please check that Kafka is running at:", args.bootstrap_servers)
+        return  # exict if connection fialed
+    
     # Start producing stream
     try:
         producer.produce_stream(
             messages_per_second=args.rate,
             duration=args.duration
         )
+    except KeyboardInterrupt:
+        # This is already handled in produce_stream(), but catch here too
+        print("\n Main interrupted")
     except Exception as e:
-        print(f"STUDENT TODO: Handle main execution errors: {e}")
+        # Better error handling
+        print("\n" + "=" * 70)
+        print(f"CRITICAL ERROR in main execution: {e}")
+        print(f"Error type: {type(e).__name__}")
+        print("=" * 70)
     finally:
+        # Clean final message
+        print("\n" + "=" * 70)
         print("Producer execution completed")
+        print("=" * 70)
 
 
-# STUDENT TODO: Testing Instructions
+# COMPLETED: Testing Instructions
 if __name__ == "__main__":
+    """
+    Entry point for the script.
+    
+    Run with: python producer.py
+    See options: python producer.py --help
+    """
     main()
