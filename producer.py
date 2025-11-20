@@ -60,7 +60,7 @@ class StreamingDataProducer:
             'linger_ms': 10,
         }
         
-            # ✅ ADD: Load Avro schema
+            # load avro schema
         try:
             schema_path = "sensor_schema.avsc"
             with open(schema_path, "r") as schema_file:
@@ -274,91 +274,69 @@ class StreamingDataProducer:
             return None
 
 
-    def send_message(self, data: Dict[str, Any]) -> bool:
-        """
-        Send message to Kafka with Avro serialization
-        """
-        if not self.producer:
-            print("❌ ERROR: Kafka producer not initialized")
-            return False
-        
-        # Serialize the data using Avro
-        serialized_data = self.serialize_data(data)
-        if not serialized_data:
-            print("❌ ERROR: Serialization failed")
-            return False
-        
-        try:
-            # Send the Avro-serialized bytes to Kafka
-            future = self.producer.send(self.topic, value=serialized_data)
-            result = future.get(timeout=10)
-            
-            print(f"✓ Avro message sent - Topic: {self.topic}, "
-                f"Partition: {result.partition}, Offset: {result.offset}, "
-                f"Sensor: {data['sensor_id']}, Type: {data['metric_type']}, "
-                f"Value: {data['value']}{data['unit']}, "
-                f"Size: {len(serialized_data)} bytes")
-            return True
-            
-        except Exception as e:
-            print(f"❌ Kafka send error: {e}")
-            return False
-
-
     def produce_stream(self, messages_per_second: float = 0.1, duration: int = None):
         """
-        STUDENT TODO: Implement the main streaming loop
-        
-        Parameters:
-        - messages_per_second: Rate of message production (default: 0.1 for 10-second intervals)
-        - duration: Total runtime in seconds (None for infinite)
+        COMPLETED: Implement the main streaming loop with enhanced monitoring
         """
+
+        print("=" * 70)
+        print(f"🚀 Starting producer stream...")
+        print(f"   Rate: {messages_per_second} msg/sec ({1/messages_per_second:.1f} second intervals)")
+        print(f"   Duration: {duration or 'infinite (press Ctrl+C to stop)'}")
+        print(f"   Topic: {self.topic}")
+        print(f"   Server: {self.bootstrap_servers}")
+        print("=" * 70)
         
-        print(f"Starting producer: {messages_per_second} msg/sec ({1/messages_per_second:.1f} second intervals), duration: {duration or 'infinite'}")
-        
+        # Initialize tracking variables
         start_time = time.time()
         message_count = 0
+        success_count = 0
+        failure_count = 0
         
         try:
             while True:
                 # Check if we've reached the duration limit
                 if duration and (time.time() - start_time) >= duration:
-                    print(f"Reached duration limit of {duration} seconds")
+                    print(f"\n⏱️  Reached duration limit of {duration} seconds")
                     break
                 
-                # Generate and send data
-                data = self.generate_sample_data()
-                success = self.send_message(data)
-                
-                if success:
+                # Generate and send data with error tracking
+                try:
+                    data = self.generate_sample_data()
+                    success = self.send_message(data)
+                    
                     message_count += 1
-                    if message_count % 10 == 0:  # Print progress every 10 messages
-                        print(f"Sent {message_count} messages...")
+                    if success:
+                        success_count += 1
+                    else:
+                        failure_count += 1
+                        print(f"⚠️  Message {message_count} failed to send")
+                    
+                except Exception as e:
+                    failure_count += 1
+                    message_count += 1
+                    print(f"❌ Error processing message {message_count}: {e}")
                 
-                # Calculate sleep time to maintain desired message rate
+                # add sleep to not flood
                 sleep_time = 1.0 / messages_per_second
                 time.sleep(sleep_time)
                 
         except KeyboardInterrupt:
-            print("\nProducer interrupted by user")
+            print("\n" + "=" * 70)
+            print("⏹️  Producer interrupted by user (Ctrl+C)")
+            print("=" * 70)
+            
         except Exception as e:
-            print(f"Streaming error: {e}")
+            print("\n" + "=" * 70)
+            print(f"❌ CRITICAL ERROR in streaming loop: {e}")
+            print(f"   Error type: {type(e).__name__}")
+            print("=" * 70)
+        
+        # cleanup
         finally:
-            # Implement proper cleanup
             self.close()
-            print(f"Producer stopped. Total messages sent: {message_count}")
-
-    def close(self):
-        """Implement producer cleanup and resource release"""
-        if self.producer:
-            try:
-                # Ensure all messages are sent
-                self.producer.flush(timeout=10)
-                # Close producer connection
-                self.producer.close()
-                print("Kafka producer closed successfully")
-            except Exception as e:
-                print(f"Error closing Kafka producer: {e}")
+            print("✅ Producer stopped successfully")
+            print("=" * 70)
 
 
 def parse_arguments():
