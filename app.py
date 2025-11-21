@@ -19,6 +19,35 @@ from kafka import KafkaConsumer
 from kafka.errors import KafkaError, NoBrokersAvailable
 from streamlit_autorefresh import st_autorefresh
 
+# avro imports
+import avro.schema
+import avro.io
+import io as python_io
+
+# Global: Load Avro schema
+@st.cache_resource
+def load_avro_schema():
+    """Load Avro schema for deserialization"""
+    try:
+        with open("sensor_schema.avsc", "r") as f:
+            schema_json = f.read()
+        return avro.schema.parse(schema_json)
+    except Exception as e:
+        st.error(f"Failed to load Avro schema: {e}")
+        return None
+
+def deserialize_avro(avro_bytes, schema):
+    """Deserialize Avro binary data"""
+    try:
+        bytes_reader = python_io.BytesIO(avro_bytes)
+        decoder = avro.io.BinaryDecoder(bytes_reader)
+        reader = avro.io.DatumReader(schema)
+        return reader.read(decoder)
+    except Exception as e:
+        st.error(f"Avro deserialization error: {e}")
+        return None
+
+
 # Page configuration
 st.set_page_config(
     page_title="Streaming Data Dashboard",
@@ -46,7 +75,7 @@ def setup_sidebar():
     
     kafka_topic = st.sidebar.text_input(
         "Kafka Topic", 
-        value="streaming-data",
+        value="sensor-data",
         help="STUDENT TODO: Specify the Kafka topic to consume from"
     )
     
@@ -84,264 +113,341 @@ def generate_sample_data():
     
     return sample_data
 
-def consume_kafka_data(config):
+# @st.cache_resource
+def consume_kafka_data(kafka_servers: str, kafka_topic: str, max_messages: int = 20):
     """
-    STUDENT TODO: Implement actual Kafka consumer
+    Consume the NEWEST messages from Kafka (no offset tracking)
     """
-    kafka_broker = config.get("kafka_broker", "localhost:9092")
-    kafka_topic = config.get("kafka_topic", "streaming-data")
     
-    # Cache Kafka consumer to avoid recreation
-    cache_key = f"kafka_consumer_{kafka_broker}_{kafka_topic}"
-    if cache_key not in st.session_state:
-        # Connection retry logic for Kafka consumer
-        max_retries = 3
-        retry_delay = 2  # seconds
+    schema = load_avro_schema()
+    if not schema:
+        st.error("Cannot consume data without Avro schema")
+        return []
+    
+    messages = []
+    
+    try:
+        from kafka import TopicPartition
+        import time as time_module
         
-        for attempt in range(max_retries):
+        consumer = KafkaConsumer(
+            bootstrap_servers=kafka_servers,
+            auto_offset_reset='earliest',
+            enable_auto_commit=False,  
+            consumer_timeout_ms=2000,
+            value_deserializer=lambda m: m
+        )
+        
+        # ⭐ Manually assign topic and partition
+        partition = TopicPartition(kafka_topic, 0)
+        consumer.assign([partition])
+        consumer.seek_to_beginning(partition)
+        
+        st.success(f"✅ Connected to Kafka: {kafka_servers} → Topic: {kafka_topic}")
+        
+        # Read ALL messages
+        all_messages = []
+        for message in consumer:
             try:
-                st.session_state[cache_key] = KafkaConsumer(
-                    kafka_topic,
-                    bootstrap_servers=[kafka_broker],
-                    auto_offset_reset='latest',
-                    enable_auto_commit=True,
-                    value_deserializer=lambda x: json.loads(x.decode('utf-8')),
-                    consumer_timeout_ms=5000
-                )
-                break  # Success, break out of retry loop
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    st.warning(f"Kafka connection attempt {attempt + 1} failed: {e}. Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                else:
-                    st.error(f"Failed to connect to Kafka after {max_retries} attempts: {e}")
-                    st.session_state[cache_key] = None
-    
-    consumer = st.session_state[cache_key]
-    
-    if consumer:
-        try:
-            # Poll for messages
-            messages = []
-            start_time = time.time()
-            poll_timeout = 5
-            
-            while time.time() - start_time < poll_timeout and len(messages) < 10:
-                msg_pack = consumer.poll(timeout_ms=1000)
-                
-                for tp, messages_batch in msg_pack.items():
-                    for message in messages_batch:
-                        try:
-                            data = message.value
-                            if all(key in data for key in ['timestamp', 'value', 'metric_type', 'sensor_id']):
-                                # Robust timestamp parsing for various ISO 8601 formats
-                                timestamp_str = data['timestamp']
-                                try:
-                                    # Handle common ISO 8601 formats including Zulu time
-                                    if timestamp_str.endswith('Z'):
-                                        timestamp_str = timestamp_str[:-1] + '+00:00'
-                                    # Parse the timestamp
-                                    timestamp = datetime.fromisoformat(timestamp_str)
-                                    messages.append({
-                                        'timestamp': timestamp,
-                                        'value': float(data['value']),
-                                        'metric_type': data['metric_type'],
-                                        'sensor_id': data['sensor_id']
-                                    })
-                                except ValueError as ve:
-                                    st.warning(f"Invalid timestamp format '{timestamp_str}': {ve}")
-                            else:
-                                st.warning(f"Invalid message format: {data}")
-                        except (ValueError, KeyError, TypeError) as e:
-                            st.warning(f"Error processing message: {e}")
-            
-            if messages:
-                return pd.DataFrame(messages)
-            else:
-                st.info("No messages received from Kafka. Using sample data.")
-                return generate_sample_data()
-                
-        except (NoBrokersAvailable, KafkaError, Exception) as e:
-            error_type = "Kafka broker unavailable" if isinstance(e, NoBrokersAvailable) else f"Kafka error: {e}" if isinstance(e, KafkaError) else f"Unexpected error: {e}"
-            st.error(f"{error_type}. Using sample data.")
-            return generate_sample_data()
-    else:
-        st.error("Unable to connect to Kafka. Using sample data.")
-        return generate_sample_data()
-
-def query_historical_data(time_range="1h", metrics=None):
-    """
-    STUDENT TODO: Implement actual historical data query
-    
-    This function should:
-    1. Connect to HDFS/MongoDB
-    2. Query historical data based on time range and selected metrics
-    3. Return aggregated historical data
-    
-    Parameters:
-    - time_range: time period to query (e.g., "1h", "24h", "7d")
-    - metrics: list of metric types to include
-    
-    Expected return format:
-    pandas DataFrame with historical data
-    """
-    # STUDENT TODO: Replace with actual storage query
-    st.warning("STUDENT TODO: Implement historical data query in query_historical_data() function")
-    
-    # Return sample data for template demonstration
-    return generate_sample_data()
-
-
-def display_real_time_view(config, refresh_interval):
-    """
-    Page 1: Real-time Streaming View
-    STUDENT TODO: Implement real-time data visualization from Kafka
-    """
-    st.header("📈 Real-time Streaming Dashboard")
-    
-    # Refresh status
-    refresh_state = st.session_state.refresh_state
-    st.info(f"**Auto-refresh:** {'🟢 Enabled' if refresh_state['auto_refresh'] else '🔴 Disabled'} - Updates every {refresh_interval} seconds")
-    
-    # Loading indicator for data consumption
-    with st.spinner("Fetching real-time data from Kafka..."):
-        real_time_data = consume_kafka_data(config)
-    
-    if real_time_data is not None:
-        # Data freshness indicator
-        data_freshness = datetime.now() - refresh_state['last_refresh']
-        freshness_color = "🟢" if data_freshness.total_seconds() < 10 else "🟡" if data_freshness.total_seconds() < 30 else "🔴"
+                data = deserialize_avro(message.value, schema)
+                if data:
+                    all_messages.append(data)
+            except:
+                continue
         
-        st.success(f"{freshness_color} Data updated {data_freshness.total_seconds():.0f} seconds ago")
+        consumer.close()
         
-        # Real-time data metrics
-        st.subheader("📊 Live Data Metrics")
-        if not real_time_data.empty:
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Records Received", len(real_time_data))
-            with col2:
-                st.metric("Latest Value", f"{real_time_data['value'].iloc[-1]:.2f}")
-            with col3:
-                st.metric("Data Range", f"{real_time_data['timestamp'].min().strftime('%H:%M')} - {real_time_data['timestamp'].max().strftime('%H:%M')}")
-        
-        # Real-time chart
-        st.subheader("📈 Real-time Trend")
-        
-        if not real_time_data.empty:
-            # STUDENT TODO: Customize this chart for your specific data
-            fig = px.line(
-                real_time_data,
-                x='timestamp',
-                y='value',
-                title=f"Real-time Data Stream (Last {len(real_time_data)} records)",
-                labels={'value': 'Sensor Value', 'timestamp': 'Time'},
-                template='plotly_white'
-            )
-            fig.update_layout(
-                xaxis_title="Time",
-                yaxis_title="Value",
-                hovermode='x unified'
-            )
-            st.plotly_chart(fig, width='stretch')
-            
-            # Raw data table with auto-refresh
-            with st.expander("📋 View Raw Data"):
-                st.dataframe(
-                    real_time_data.sort_values('timestamp', ascending=False),
-                    width='stretch',
-                    height=300
-                )
+        # Return LAST N messages (newest)
+        if all_messages:
+            messages = all_messages[-max_messages:]
+            st.success(f"✅ Showing {len(messages)} newest messages (out of {len(all_messages)} total)")
         else:
-            st.warning("No real-time data available. STUDENT TODO: Implement Kafka consumer.")
+            st.info("⏳ No messages in Kafka")
+        
+    except Exception as e:
+        st.error(f"❌ Kafka error: {e}")
     
-    else:
-        st.error("STUDENT TODO: Kafka data consumption not implemented")
+    return messages
 
-def display_historical_view(config):
+def query_historical_data(storage_type: str, time_range: tuple = None, 
+                         sensor_ids: list = None, metric_types: list = None):
     """
-    STUDENT TODO: Implement historical data query and visualization
+    PLACEHOLDER: Historical data from MongoDB (to be implemented later)
+    
+    For now, returns empty DataFrame
     """
-    st.header("📊 Historical Data Analysis")
+    st.info("📝 Historical data view - MongoDB integration coming next!")
+    st.write("For now, use the **Real-Time View** to see live Kafka data")
+    return pd.DataFrame()
+
+
+def display_real_time_view(data: pd.DataFrame):
+    """Render real-time streaming view with improved charts"""
+    st.header("📡 Real-Time Data Stream")
     
-    with st.expander("ℹ️ Implementation Guide"):
-        st.info("""
-        **STUDENT TODO:** This page should display historical data queried from HDFS or MongoDB.
-        Implement the following:
-        - Connection to your chosen storage system (HDFS/MongoDB)
-        - Interactive filters and selectors for data exploration
-        - Data aggregation and analysis capabilities
-        - Historical trend visualization
-        """)
+    if data.empty:
+        st.warning("⚠️ No real-time data available")
+        st.info("Make sure your producer is running: `python producer.py`")
+        return
     
-    # Interactive controls
-    st.subheader("Data Filters")
+    # Convert timestamp and sort
+    data['timestamp'] = pd.to_datetime(data['timestamp'])
+    data = data.sort_values('timestamp', ascending=False)
+    
+    # Display metrics
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        time_range = st.selectbox(
-            "Time Range",
-            ["1h", "24h", "7d", "30d"],
-            help="STUDENT TODO: Implement time-based filtering in your query"
-        )
+        st.metric("Total Messages", len(data))
     
     with col2:
-        metric_type = st.selectbox(
-            "Metric Type",
-            ["temperature", "humidity", "pressure", "all"],
-            help="STUDENT TODO: Implement metric filtering in your query"
-        )
+        st.metric("Unique Sensors", data['sensor_id'].nunique())
     
     with col3:
-        aggregation = st.selectbox(
-            "Aggregation",
-            ["raw", "hourly", "daily", "weekly"],
-            help="STUDENT TODO: Implement data aggregation in your query"
-        )
+        latest_time = data['timestamp'].max()
+        st.metric("Latest Update", str(latest_time)[:19])
     
-    # STUDENT TODO: Replace with actual historical data query
-    historical_data = query_historical_data(time_range, [metric_type] if metric_type != "all" else None)
+    # Show latest messages table
+    st.subheader("📋 Latest Messages (Newest First)")
+    st.dataframe(
+        data[['timestamp', 'sensor_id', 'metric_type', 'value', 'unit', 'location']].head(20),
+        use_container_width=True
+    )
     
-    if historical_data is not None:
-        # Display raw data
-        st.subheader("Historical Data Table")
-        st.info("STUDENT TODO: Customize data display for your specific dataset")
+    # ⭐ IMPROVED VISUALIZATIONS
+    st.subheader("📊 Real-Time Weather Dashboard")
+    
+    # Get unique metric types
+    metric_types = data['metric_type'].unique()
+    
+    # ⭐ Create columns for side-by-side comparison
+    if len(metric_types) > 0:
+        # 1. Current Values by Location (Bar Charts)
+        st.subheader("🌍 Current Weather by Location")
         
-        st.dataframe(
-            historical_data,
-            width='stretch',
-            hide_index=True
-        )
+        cols = st.columns(min(3, len(metric_types)))
         
-        # Historical trends
-        st.subheader("Historical Trends")
-        st.info("STUDENT TODO: Implement meaningful historical analysis and visualization")
+        for idx, metric in enumerate(metric_types):
+            with cols[idx % 3]:
+                metric_data = data[data['metric_type'] == metric]
+                
+                # Get latest value for each location
+                latest_by_location = metric_data.groupby('location').agg({
+                    'value': 'last',
+                    'unit': 'last',
+                    'timestamp': 'max'
+                }).reset_index()
+                
+                # Create bar chart
+                fig = px.bar(
+                    latest_by_location,
+                    x='location',
+                    y='value',
+                    title=f"Current {metric.title()}",
+                    labels={'value': f'{metric.title()} ({latest_by_location["unit"].iloc[0]})',
+                           'location': 'City'},
+                    color='value',
+                    color_continuous_scale='RdYlBu_r' if metric == 'temperature' else 'Blues',
+                    text='value'
+                )
+                fig.update_traces(texttemplate='%{text:.1f}', textposition='outside')
+                fig.update_layout(showlegend=False, height=400)
+                st.plotly_chart(fig, use_container_width=True)
         
-        if not historical_data.empty:
-            # STUDENT TODO: Customize this analysis for your data
+        # 2. Time Series with Multiple Locations
+        st.subheader("📈 Trends Over Time")
+        
+        for metric in metric_types:
+            metric_data = data[data['metric_type'] == metric].sort_values('timestamp')
+            
+            if len(metric_data) > 1:  # Only show if we have multiple data points
+                fig = px.line(
+                    metric_data,
+                    x='timestamp',
+                    y='value',
+                    color='location',
+                    title=f"{metric.title()} Trend by City",
+                    labels={'value': f'{metric.title()} ({metric_data["unit"].iloc[0]})',
+                           'timestamp': 'Time',
+                           'location': 'City'},
+                    markers=True
+                )
+                fig.update_layout(
+                    hovermode='x unified',
+                    height=400,
+                    xaxis_title="Time",
+                    yaxis_title=f"{metric.title()} ({metric_data['unit'].iloc[0]})"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+        
+        # 3. Comparison Table - Latest Values
+        st.subheader("📊 Latest Weather Comparison")
+        
+        # Pivot table: rows=locations, columns=metrics
+        pivot_data = data.groupby(['location', 'metric_type']).agg({
+            'value': 'last',
+            'timestamp': 'max'
+        }).reset_index()
+        
+        comparison_table = pivot_data.pivot(
+            index='location',
+            columns='metric_type',
+            values='value'
+        ).round(2)
+        
+        # Style the dataframe
+        # Show comparison table without styling
+        st.dataframe(comparison_table, use_container_width=True)
+
+        
+        # 4. Statistics Summary
+        st.subheader("📉 Statistical Summary")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        for idx, metric in enumerate(metric_types):
+            metric_data = data[data['metric_type'] == metric]
+            
+            with [col1, col2, col3][idx % 3]:
+                st.markdown(f"**{metric.title()}** ({metric_data['unit'].iloc[0]})")
+                
+                stats_col1, stats_col2 = st.columns(2)
+                with stats_col1:
+                    st.metric("Min", f"{metric_data['value'].min():.1f}")
+                    st.metric("Mean", f"{metric_data['value'].mean():.1f}")
+                with stats_col2:
+                    st.metric("Max", f"{metric_data['value'].max():.1f}")
+                    st.metric("Std Dev", f"{metric_data['value'].std():.2f}")
+
+def display_historical_view(config):
+    """Render historical data view from MongoDB"""
+    st.header("📊 Historical Weather Data")
+    
+    try:
+        from pymongo import MongoClient
+        from datetime import timedelta
+        
+        # Connect to MongoDB
+        client = MongoClient('mongodb://localhost:27017/')
+        db = client['weather_dashboard']
+        collection = db['sensor_readings']
+        
+        # Check if we have data
+        total_docs = collection.count_documents({})
+        
+        if total_docs == 0:
+            st.info("📝 No historical data yet. Run storage_consumer.py to start collecting data!")
+            st.code("python storage_consumer.py", language="bash")
+            return
+        
+        st.success(f"✅ Connected to MongoDB - {total_docs} total readings")
+        
+        # Filters
+        st.subheader("🔍 Filters")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            # Time range filter
+            time_range = st.selectbox(
+                "Time Range",
+                ["Last Hour", "Last 6 Hours", "Last 24 Hours", "Last 7 Days", "All Time"]
+            )
+        
+        with col2:
+            # Get unique locations
+            locations = collection.distinct("location")
+            selected_location = st.selectbox("Location", ["All"] + locations)
+        
+        with col3:
+            # Metric type filter
+            metrics = collection.distinct("metric_type")
+            selected_metric = st.selectbox("Metric Type", ["All"] + metrics)
+        
+        # Build query
+        query = {}
+        
+        # Time filter
+        if time_range != "All Time":
+            hours_map = {
+                "Last Hour": 1,
+                "Last 6 Hours": 6,
+                "Last 24 Hours": 24,
+                "Last 7 Days": 168
+            }
+            hours = hours_map[time_range]
+            cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+            query['timestamp'] = {'$gte': cutoff_time.isoformat()}
+        
+        # Location filter
+        if selected_location != "All":
+            query['location'] = selected_location
+        
+        # Metric filter
+        if selected_metric != "All":
+            query['metric_type'] = selected_metric
+        
+        # Query MongoDB
+        cursor = collection.find(query).sort("timestamp", -1).limit(1000)
+        results = list(cursor)
+        
+        if not results:
+            st.warning("No data matches your filters")
+            return
+        
+        # Convert to DataFrame
+        df = pd.DataFrame(results)
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        
+        # Display summary metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total Readings", len(df))
+        
+        with col2:
+            st.metric("Locations", df['location'].nunique())
+        
+        with col3:
+            time_span = (df['timestamp'].max() - df['timestamp'].min()).total_seconds() / 3600
+            st.metric("Time Span", f"{time_span:.1f}h")
+        
+        with col4:
+            st.metric("Metrics", df['metric_type'].nunique())
+        
+        # Charts
+        st.subheader("📈 Historical Trends")
+        
+        # Group by metric type
+        for metric in df['metric_type'].unique():
+            metric_data = df[df['metric_type'] == metric].sort_values('timestamp')
+            
             fig = px.line(
-                historical_data,
+                metric_data,
                 x='timestamp',
                 y='value',
-                title="STUDENT TODO: Customize historical trend analysis"
+                color='location',
+                title=f"{metric.title()} Over Time",
+                labels={'value': f'{metric.title()} ({metric_data["unit"].iloc[0]})',
+                       'timestamp': 'Time'},
+                markers=True
             )
-            st.plotly_chart(fig, width='stretch')
-            
-            # Additional analysis
-            st.subheader("Data Summary")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.metric("Total Records", len(historical_data))
-                st.metric("Date Range", f"{historical_data['timestamp'].min().strftime('%Y-%m-%d')} to {historical_data['timestamp'].max().strftime('%Y-%m-%d')}")
-            
-            with col2:
-                st.metric("Average Value", f"{historical_data['value'].mean():.2f}")
-                st.metric("Data Variability", f"{historical_data['value'].std():.2f}")
-    
-    else:
-        st.error("STUDENT TODO: Historical data query not implemented")
+            fig.update_layout(hovermode='x unified', height=400)
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # Data table
+        st.subheader("📋 Recent Readings")
+        st.dataframe(
+            df[['timestamp', 'location', 'metric_type', 'value', 'unit', 'sensor_id']].head(50),
+            use_container_width=True
+        )
+        
+        client.close()
+        
+    except Exception as e:
+        st.error(f"❌ Error loading historical data: {e}")
+        st.info("Make sure MongoDB is running: sudo docker start mongodb")
+
 
 def main():
     """
@@ -403,7 +509,11 @@ def main():
     tab1, tab2 = st.tabs(["📈 Real-time Streaming", "📊 Historical Data"])
     
     with tab1:
-        display_real_time_view(config, refresh_interval)
+        # Consume Kafka data and display
+        messages = consume_kafka_data(config['kafka_broker'], config['kafka_topic'])
+        df = pd.DataFrame(messages) if messages else pd.DataFrame()
+        display_real_time_view(df)
+
     
     with tab2:
         display_historical_view(config)

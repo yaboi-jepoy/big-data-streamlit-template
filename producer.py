@@ -25,6 +25,9 @@ import avro.schema
 import avro.io
 import io as python_io
 
+# for web functions
+import requests
+
 
 class StreamingDataProducer:
     """
@@ -124,92 +127,93 @@ class StreamingDataProducer:
 
     def generate_sample_data(self) -> Dict[str, Any]:
         """
-        Generate realistic streaming data with stateful patterns
+        ✅ COMPLETED: Fetch real weather data from WeatherAPI.com
         
-        This function creates continuously changing records with realistic patterns:
-        - Daily cycles using sine waves
-        - Gradual trends and realistic noise
-        - Multiple metric types (temperature, humidity, pressure)
-        - Temporal consistency with progressive timestamps
-        
-        Expected data format (must include these fields for dashboard compatibility):
-        {
-            "timestamp": "2023-10-01T12:00:00Z",  # ISO format timestamp
-            "value": 123.45,                      # Numeric measurement value
-            "metric_type": "temperature",         # Type of metric (temperature, humidity, etc.)
-            "sensor_id": "sensor_001",            # Unique identifier for data source
-            "location": "server_room_a",          # Sensor location
-            "unit": "celsius",                    # Measurement unit
-        }
+        Returns data for multiple cities in required schema format
         """
         
-        # Select a random sensor from the expanded pool
-        sensor = random.choice(self.sensors)
-        sensor_id = sensor["id"]
-        metric_type = sensor["type"]
+        # Your WeatherAPI key
+        API_KEY = "b3438c26b1164aa7afb190426252011"
+        BASE_URL = "http://api.weatherapi.com/v1/current.json"
         
-        # Initialize sensor state if not exists
-        if sensor_id not in self.sensor_states:
-            config = self.metric_ranges[metric_type]
-            base_value = random.uniform(config["min"], config["max"])
-            trend = random.uniform(config["trend_range"][0], config["trend_range"][1])
-            phase_offset = random.uniform(0, 2 * 3.14159)  # Random phase for daily cycle
+        # List of cities to monitor (simulating multiple sensors)
+        cities = [
+            "Quezon City",
+            "Manila", 
+            "Makati",
+            "Pasig",
+            "Caloocan"
+        ]
+        
+        # Rotate through cities to simulate multiple sensors
+        if not hasattr(self, 'city_index'):
+            self.city_index = 0
+        
+        city = cities[self.city_index % len(cities)]
+        self.city_index += 1
+        
+        try:
+            # Make API request
+            url = f"{BASE_URL}?key={API_KEY}&q={city}&aqi=no"
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
             
-            self.sensor_states[sensor_id] = {
-                "base_value": base_value,
-                "trend": trend,
-                "phase_offset": phase_offset,
-                "last_value": base_value,
-                "message_count": 0
+            weather_data = response.json()
+            
+            # Extract data from API response
+            location = weather_data['location']['name']
+            temp_c = weather_data['current']['temp_c']
+            humidity = weather_data['current']['humidity']
+            pressure_mb = weather_data['current']['pressure_mb']
+            
+            # Randomly choose which metric to send (temperature, humidity, or pressure)
+            metric_choice = random.choice(['temperature', 'humidity', 'pressure'])
+            
+            if metric_choice == 'temperature':
+                value = temp_c
+                unit = 'celsius'
+            elif metric_choice == 'humidity':
+                value = humidity
+                unit = 'percent'
+            else:  # pressure
+                value = pressure_mb
+                unit = 'hPa'
+            
+            # Generate sensor ID based on city and metric
+            sensor_id = f"sensor_{city.replace(' ', '_').lower()}_{metric_choice[:4]}"
+            
+            # Return in required schema format
+            sample_data = {
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "value": round(value, 2),
+                "metric_type": metric_choice,
+                "sensor_id": sensor_id,
+                "location": location,
+                "unit": unit
             }
-        
-        state = self.sensor_states[sensor_id]
-        
-        # Calculate progressive timestamp with configurable intervals
-        current_time = self.base_time + timedelta(seconds=self.time_counter)
-        self.time_counter += random.uniform(0.5, 2.0)  # Variable intervals for realism
-        
-        # Generate realistic value with patterns
-        config = self.metric_ranges[metric_type]
-        
-        # Daily cycle using sine wave (24-hour period)
-        hours_in_day = 24
-        current_hour = current_time.hour + current_time.minute / 60
-        daily_cycle = math.sin(2 * 3.14159 * current_hour / hours_in_day + state["phase_offset"])
-        
-        # Apply trend over time (slow drift)
-        trend_effect = state["trend"] * (state["message_count"] / 100.0)
-        
-        # Add realistic noise (small random variations)
-        noise = random.uniform(-config["daily_amplitude"] * 0.1, config["daily_amplitude"] * 0.1)
-        
-        # Calculate final value with bounds checking
-        base_value = state["base_value"]
-        daily_variation = daily_cycle * config["daily_amplitude"]
-        raw_value = base_value + daily_variation + trend_effect + noise
-        
-        # Ensure value stays within reasonable bounds
-        bounded_value = max(config["min"], min(config["max"], raw_value))
-        
-        # Update state
-        state["last_value"] = bounded_value
-        state["message_count"] += 1
-        
-        # Occasionally introduce small trend changes for realism
-        if random.random() < 0.01:  # 1% chance per message
-            state["trend"] = random.uniform(config["trend_range"][0], config["trend_range"][1])
-        
-        # Generate realistic data structure
-        sample_data = {
-            "timestamp": current_time.isoformat() + 'Z',
-            "value": round(bounded_value, 2),
-            "metric_type": metric_type,
-            "sensor_id": sensor_id,
+            
+            return sample_data
+            
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️  API request error: {e}")
+            # Fallback to synthetic data if API fails
+            return self._generate_fallback_data()
+        except KeyError as e:
+            print(f"⚠️  API response parsing error: {e}")
+            return self._generate_fallback_data()
+
+    def _generate_fallback_data(self) -> Dict[str, Any]:
+        """Fallback synthetic data if API fails"""
+        sensor = random.choice(self.sensors)
+        return {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "value": round(random.uniform(20, 30), 2),
+            "metric_type": sensor["type"],
+            "sensor_id": sensor["id"],
             "location": sensor["location"],
-            "unit": sensor["unit"],
+            "unit": sensor["unit"]
         }
-        
-        return sample_data
+
 
     def serialize_data(self, data: Dict[str, Any]) -> bytes:
         """
