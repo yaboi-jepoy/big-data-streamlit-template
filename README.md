@@ -243,25 +243,12 @@ cd ~/kafka
 - MongoDB stores unlimited historical data
 - Kafka retains data for 7 days (default)
 
-## 🤝 Contributing
-
-Feel free to fork this project and submit pull requests for improvements!
-
-## 📄 License
-
-This project is for educational purposes.
-
 ## 👨‍💻 Author
 
-Computer Engineering Student
-Big Data Engineering Project
-
-## 🙏 Acknowledgments
-
-- Apache Kafka for streaming infrastructure
-- MongoDB for data persistence
-- Streamlit for the amazing dashboard framework
-- WeatherAPI for real-time weather data
+ CPE032 - Big Data Engineering | CPE31S1
+ Clavines, Miguel Arwyn
+ Latonero, Vince Philip
+ Peñas, John Patrick
 
 ---
 
