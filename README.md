@@ -1,6 +1,3 @@
-Perfect! Here's a comprehensive README.md for your Weather Streaming Dashboard project:
-
-```markdown
 # 🌤️ Real-Time Weather Streaming Dashboard
 
 A complete big data streaming pipeline that collects real-time weather data, processes it through Apache Kafka, stores it in MongoDB, and visualizes it using an interactive Streamlit dashboard.
@@ -16,12 +13,11 @@ This project demonstrates a full streaming data architecture using:
 - **WeatherAPI** for live weather data
 
 ## 🏗️ Architecture
+
 ```
-
 Weather API → Producer → Kafka → Storage Consumer → MongoDB
-↓
-Dashboard (Streamlit)
-
+                                        ↓
+                                  Dashboard (Streamlit)
 ```
 
 ## 🚀 Features
@@ -44,33 +40,26 @@ Dashboard (Streamlit)
 
 ### 1. Clone the Repository
 
-```
-
+```bash
 git clone <your-repository-url>
 cd big-data-streamlit-template
-
 ```
 
 ### 2. Set Up Virtual Environment
 
-```
-
+```bash
 python -m venv venv
-source venv/bin/activate # On Windows: venv\Scripts\activate
-
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
 ### 3. Install Dependencies
 
-```
-
+```bash
 pip install -r requirements.txt
-
 ```
 
 Required packages:
 ```
-
 streamlit
 kafka-python
 pymongo
@@ -80,36 +69,30 @@ avro-python3
 requests
 streamlit-autorefresh
 openpyxl
-
 ```
 
 ### 4. Start MongoDB
 
-```
-
+```bash
 sudo docker run -d \
- --name mongodb \
- -p 27017:27017 \
- -v ~/mongodb-data:/data/db \
- mongo:latest
-
+  --name mongodb \
+  -p 27017:27017 \
+  -v ~/mongodb-data:/data/db \
+  mongo:latest
 ```
 
 Verify MongoDB is running:
-```
-
+```bash
 sudo docker ps | grep mongodb
-
 ```
 
 ### 5. Configure WeatherAPI
 
 1. Get a free API key from [WeatherAPI.com](https://www.weatherapi.com/)
 2. Add your API key to `producer.py`:
-```
 
+```python
 WEATHER_API_KEY = 'your_api_key_here'
-
 ```
 
 ## 🎯 Usage
@@ -119,44 +102,34 @@ WEATHER_API_KEY = 'your_api_key_here'
 You need **4 terminal windows** to run the complete pipeline:
 
 #### Terminal 1: Kafka Server
-```
-
+```bash
 cd ~/kafka
 ./bin/kafka-server-start.sh config/controller.properties
-
 ```
 
 #### Terminal 2: Producer (sends weather data)
-```
-
+```bash
 source venv/bin/activate
 python producer.py
-
 ```
 
 #### Terminal 3: Storage Consumer (saves to MongoDB)
-```
-
+```bash
 source venv/bin/activate
 python storage_consumer.py
-
 ```
 
 #### Terminal 4: Dashboard (visualization)
-```
-
+```bash
 source venv/bin/activate
 streamlit run app.py
-
 ```
 
 ### Accessing the Dashboard
 
 Open your browser and navigate to:
 ```
-
 http://localhost:8501
-
 ```
 
 ## 📊 Dashboard Features
@@ -179,16 +152,14 @@ http://localhost:8501
 ## 🗂️ Project Structure
 
 ```
-
 big-data-streamlit-template/
-├── producer.py # Kafka producer (fetches weather data)
-├── storage_consumer.py # Kafka consumer (stores to MongoDB)
-├── app.py # Streamlit dashboard
-├── sensor_schema.avsc # Avro schema definition
-├── requirements.txt # Python dependencies
-├── venv/ # Virtual environment
-└── README.md # This file
-
+├── producer.py             # Kafka producer (fetches weather data)
+├── storage_consumer.py     # Kafka consumer (stores to MongoDB)
+├── app.py                  # Streamlit dashboard
+├── sensor_schema.avsc      # Avro schema definition
+├── requirements.txt        # Python dependencies
+├── venv/                   # Virtual environment
+└── README.md               # This file
 ```
 
 ## 🔧 Configuration
@@ -197,15 +168,13 @@ big-data-streamlit-template/
 Topic name: `sensor-data`
 
 To reset/clean Kafka data:
-```
-
+```bash
 cd ~/kafka
 ./bin/kafka-topics.sh --delete --topic sensor-data --bootstrap-server localhost:9092
 ./bin/kafka-topics.sh --create --topic sensor-data \
- --bootstrap-server localhost:9092 \
- --partitions 1 \
- --replication-factor 1
-
+  --bootstrap-server localhost:9092 \
+  --partitions 1 \
+  --replication-factor 1
 ```
 
 ### MongoDB
@@ -213,10 +182,8 @@ Database: `weather_dashboard`
 Collection: `sensor_readings`
 
 To clean MongoDB data:
-```
-
+```bash
 sudo docker exec -it mongodb mongosh --eval "use weather_dashboard; db.sensor_readings.deleteMany({})"
-
 ```
 
 ## 🌍 Data Sources
@@ -236,29 +203,21 @@ Metrics collected:
 ## 🔍 Troubleshooting
 
 ### Kafka won't start
-```
-
+```bash
 # Check if port 9092 is in use
-
 sudo lsof -i :9092
 
 # Check Kafka logs
-
 tail -f ~/kafka/logs/server.log
-
 ```
 
 ### MongoDB connection issues
-```
-
+```bash
 # Start MongoDB
-
 sudo docker start mongodb
 
 # Check MongoDB logs
-
 sudo docker logs mongodb
-
 ```
 
 ### Producer not fetching data
@@ -269,13 +228,12 @@ sudo docker logs mongodb
 ### Dashboard shows "No data"
 - Ensure producer is running and sending data
 - Check Kafka topic has messages:
-```
 
+```bash
 cd ~/kafka
 ./bin/kafka-run-class.sh kafka.tools.GetOffsetShell \
- --broker-list localhost:9092 \
- --topic sensor-data
-
+  --broker-list localhost:9092 \
+  --topic sensor-data
 ```
 
 ## 📈 Performance Notes
@@ -308,4 +266,3 @@ Big Data Engineering Project
 ---
 
 **Built with ❤️ for Big Data Engineering Course**
-```
