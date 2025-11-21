@@ -191,7 +191,7 @@ def display_real_time_view(data: pd.DataFrame):
         return
     
     # Convert timestamp and sort
-    data['timestamp'] = pd.to_datetime(data['timestamp'])
+    data['timestamp'] = pd.to_datetime(data['timestamp'], utc=True).dt.tz_convert('Asia/Manila')  # Use your timezone
     data = data.sort_values('timestamp', ascending=False)
     
     # Display metrics
@@ -397,7 +397,7 @@ def display_historical_view(config):
         
         # Convert to DataFrame
         df = pd.DataFrame(results)
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True).dt.tz_convert('Asia/Manila')
         
         # Display summary metrics
         col1, col2, col3, col4 = st.columns(4)
@@ -414,10 +414,107 @@ def display_historical_view(config):
         
         with col4:
             st.metric("Metrics", df['metric_type'].nunique())
+            
+        # EXPORT DATAAA
+        st.subheader("💾 Export Data")
+
+        # Prepare clean data for export
+        export_df = df[['timestamp', 'location', 'sensor_id', 'metric_type', 'value', 'unit']].copy()
+
+        # CSV Export
+        csv_df = export_df.copy()
+        csv_df['timestamp'] = csv_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+        csv = csv_df.to_csv(index=False).encode('utf-8')
+
+        st.download_button(
+            label="📄 Download CSV",
+            data=csv,
+            file_name=f"weather_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
+        )
+
+        # JSON Export
+        json_df = export_df.copy()
+        json_df['timestamp'] = json_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+        json_str = json_df.to_json(orient='records', indent=2)
+
+        st.download_button(
+            label="📋 Download JSON",
+            data=json_str,
+            file_name=f"weather_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            mime="application/json"
+        )
+
+        # Excel Export
+        try:
+            from io import BytesIO
+            
+            excel_df = export_df.copy()
+            excel_df['timestamp'] = pd.to_datetime(excel_df['timestamp']).dt.tz_localize(None)
+            
+            buffer = BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                excel_df.to_excel(writer, sheet_name='Weather Data', index=False)
+            
+            st.download_button(
+                label="📊 Download Excel",
+                data=buffer.getvalue(),
+                file_name=f"weather_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        except Exception as e:
+            st.error(f"Excel export error: {e}")
+
+        st.divider()
         
         # Charts
         st.subheader("📈 Historical Trends")
-        
+
+        st.subheader("📦 Distribution Analysis")
+
+        col1, col2 = st.columns(2)
+
+        for idx, metric in enumerate(df['metric_type'].unique()):
+            metric_data = df[df['metric_type'] == metric]
+            
+            with [col1, col2][idx % 2]:
+                fig = px.box(
+                    metric_data,
+                    x='location',
+                    y='value',
+                    color='location',
+                    title=f"{metric.title()} Distribution by City",
+                    labels={'value': f'{metric.title()} ({metric_data["unit"].iloc[0]})'}
+                )
+                fig.update_layout(showlegend=False, height=400)
+                st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("⏰ Average Readings by Time of Day")
+
+        df['hour'] = df['timestamp'].dt.hour
+
+        cols = st.columns(min(3, df['metric_type'].nunique()))
+
+        for idx, metric in enumerate(df['metric_type'].unique()):
+            metric_data = df[df['metric_type'] == metric]
+            
+            hourly_avg = metric_data.groupby('hour').agg({
+                'value': 'mean'
+            }).reset_index()
+            
+            with cols[idx % 3]:
+                fig = px.bar(
+                    hourly_avg,
+                    x='hour',
+                    y='value',
+                    title=f"Avg {metric.title()} by Hour",
+                    labels={'hour': 'Hour of Day', 'value': f'{metric.title()}'},
+                    color='value',
+                    color_continuous_scale='Viridis'
+                )
+                fig.update_layout(showlegend=False, height=350)
+                st.plotly_chart(fig, use_container_width=True)
+                
         # Group by metric type
         for metric in df['metric_type'].unique():
             metric_data = df[df['metric_type'] == metric].sort_values('timestamp')
@@ -438,7 +535,7 @@ def display_historical_view(config):
         # Data table
         st.subheader("📋 Recent Readings")
         st.dataframe(
-            df[['timestamp', 'location', 'metric_type', 'value', 'unit', 'sensor_id']].head(50),
+            df[['timestamp', 'location', 'metric_type', 'value', 'unit', 'sensor_id']],
             use_container_width=True
         )
         
@@ -453,8 +550,8 @@ def main():
     """
     STUDENT TODO: Customize the main application flow as needed
     """
-    st.title("🚀 Streaming Data Dashboard")
-    
+    st.title("CPL Weather Monitor")
+        
     with st.expander("📋 Project Instructions"):
         st.markdown("""
         **STUDENT PROJECT TEMPLATE**

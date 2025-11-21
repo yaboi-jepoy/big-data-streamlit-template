@@ -28,7 +28,6 @@ import io as python_io
 # for web functions
 import requests
 
-
 class StreamingDataProducer:
     """
     Enhanced Kafka producer with stateful synthetic data generation
